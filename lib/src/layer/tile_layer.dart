@@ -88,6 +88,13 @@ class TileLayerOptions extends LayerOptions {
   /// When panning the map, keep this many rows and columns of tiles before
   /// unloading them.
   final int keepBuffer;
+  
+  /// When transitioning zoom levels, keep for this many milliseconds before discarding
+  /// This helps smooth the blank tiles during a load, when you get a grey screen
+  /// Recommend > 1000 for mobile
+
+  final int keepTileDelay;
+  
   ImageProvider placeholderImage;
   Map<String, String> additionalOptions;
 
@@ -104,6 +111,7 @@ class TileLayerOptions extends LayerOptions {
       this.placeholderImage,
       this.tileProvider = const CachedNetworkTileProvider(),
       this.tms = false,
+      this.keepTileDelay = 1200,
       rebuild})
       : super(rebuild: rebuild);
 }
@@ -134,6 +142,7 @@ class _TileLayerState extends State<TileLayer> {
   Tuple2<double, double> _wrapY;
   double _tileZoom;
   Level _level;
+  Map<String, DateTime> _usedTileCache = {};
   StreamSubscription _moveSub;
 
   final Map<String, Tile> _tiles = {};
@@ -214,6 +223,7 @@ class _TileLayerState extends State<TileLayer> {
   }
 
   void _pruneTiles() {
+    List<String> toRemove = [];
     var center = map.center;
     var pixelBounds = _getTiledPixelBounds(center);
     var tileRange = _pxBoundsToTileRange(pixelBounds);
@@ -228,7 +238,17 @@ class _TileLayerState extends State<TileLayer> {
         tile.current = false;
       }
     }
-    _tiles.removeWhere((s, tile) => tile.current == false);
+    _tiles.keys.forEach(( tileKey ) {
+      if((_tiles[tileKey].current == false) && (_usedTileCache[tileKey] == null)) {
+        _usedTileCache[tileKey] = DateTime.now();
+      } else if ((_tiles[tileKey].current == false) && ( DateTime.now().difference(_usedTileCache[tileKey]).inMilliseconds > this.options.keepTileDelay)) {
+      toRemove.add(tileKey);
+      }
+    });
+    toRemove.forEach((String tileKey ){
+      _tiles.remove(tileKey);
+      _usedTileCache.remove(tileKey);
+    });
   }
 
   void _setZoomTransform(Level level, LatLng center, double zoom) {
